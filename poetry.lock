@@ -303,6 +303,21 @@ desktop = ["flet-desktop (==0.82.2) ; platform_system == \"Darwin\" or platform_
 web = ["flet-web (==0.82.2)", "flet-web (==0.82.2)"]
 
 [[package]]
+name = "flet-map"
+version = "0.82.2"
+description = "Interactive map controls for Flet apps."
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "flet_map-0.82.2-py3-none-any.whl", hash = "sha256:78454b322a88d18a3dc7b879268ca275f1a9f034123d8f9003ff79501009aca8"},
+    {file = "flet_map-0.82.2.tar.gz", hash = "sha256:9418b6e3b2eaaef8061dffae5d41b189fb37125586206fba6b7ee010c5bc4b66"},
+]
+
+[package.dependencies]
+flet = "0.82.2"
+
+[[package]]
 name = "folium"
 version = "0.20.0"
 description = "Make beautiful maps with Leaflet.js & Python"
@@ -1239,4 +1254,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "a3fcd3d80440c28871cb1fec392def5c65a875ece1a1c104b2cb681ccfe1c544"
+content-hash = "0afb13eb7a6ec6cf5f9f14318bb7691c6652d0ea482259b1c3ecd6c9f0b4cf2b"
