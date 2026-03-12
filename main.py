@@ -6,7 +6,10 @@ from datetime import datetime
 from typing import List, Optional
 import folium
 import os
-import webbrowser # <-- A ARMA SECRETA DO PYTHON!
+import webbrowser 
+import matplotlib.pyplot as plt
+import io
+import base64
 
 # ==========================================
 # MODELO DE DADOS PADRONIZADO
@@ -87,61 +90,146 @@ def gerar_mapa(atividade: Atividade) -> str:
     return caminho_absoluto
 
 # ==========================================
-# INTERFACE DO UTILIZADOR (FLET)
+# GERAÇÃO DE GRÁFICOS MATPLOTLIB (NOVO!)
+# ==========================================
+def criar_grafico_fc(atividade: Atividade) -> ft.Control:
+    pontos_com_fc = [p for p in atividade.pontos if p.frequencia_cardiaca is not None]
+    
+    if not pontos_com_fc:
+        return ft.Text("Sem dados de Frequência Cardíaca registados.", color=ft.Colors.GREY_500, italic=True)
+
+    tempo_inicial = pontos_com_fc[0].tempo
+    
+    # Extrair os dados para listas do Python
+    minutos = [(p.tempo - tempo_inicial).total_seconds() / 60.0 for p in pontos_com_fc]
+    fcs = [p.frequencia_cardiaca for p in pontos_com_fc]
+
+    # Criar a figura do Matplotlib (Tamanho e Fundo Transparente)
+    fig, ax = plt.subplots(figsize=(8, 3), dpi=100)
+    fig.patch.set_alpha(0.0) # Fundo da imagem transparente
+    ax.set_facecolor('#1E1E1E') # Cor de fundo do gráfico para combinar com o modo Dark do Flet
+
+    # Desenhar o gráfico de linha e preencher a parte de baixo com cor
+    ax.plot(minutos, fcs, color='#EF5350', linewidth=1.5)
+    ax.fill_between(minutos, fcs, color='#EF5350', alpha=0.3)
+
+    # Estilização dos eixos para ficar com visual de Dashboard
+    ax.set_xlabel('Tempo (minutos)', color='white')
+    ax.set_ylabel('BPM', color='white')
+    ax.tick_params(colors='white', which='both')
+    ax.spines['bottom'].set_color('#555555')
+    ax.spines['left'].set_color('#555555')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(True, linestyle='--', alpha=0.2, color='white')
+
+    plt.tight_layout()
+
+    # Converter a imagem do gráfico num Base64 para injetar direto no Flet
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight', transparent=True)
+    buf.seek(0)
+    img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+
+    # Devolve a imagem renderizada para a interface
+    return ft.Image(src=f"data:image/png;base64,{img_base64}", fit="contain", expand=True)
+    #return ft.Image(src_base64=img_base64, fit=ft.ImageFit.CONTAIN, expand=True)
+
+# ==========================================
+# INTERFACE DO UTILIZADOR (FLET) - FASE 3
 # ==========================================
 def main(page: ft.Page):
-    page.title = "Análise de Corridas - Fase 2"
+    page.title = "Análise de Corridas - Fase 3"
     page.theme_mode = ft.ThemeMode.DARK
-    page.padding = 30
+    page.padding = 20
     page.scroll = "auto"
 
-    texto_estado = ft.Text(value="A aguardar ficheiro...", italic=True, color=ft.Colors.GREY_400)
+    lista_de_atividades: List[Atividade] = []
+
+    texto_estado = ft.Text(value="A aguardar ficheiros...", italic=True, color=ft.Colors.GREY_400)
+    coluna_historico = ft.Column(spacing=10)
     painel_detalhes = ft.Column(spacing=10)
 
-    def processar_ficheiro(caminho: str):
-        try:
-            texto_estado.value = f"A processar: {caminho.split('/')[-1]}..."
-            page.update()
+    def mostrar_detalhes(atividade: Atividade):
+        painel_detalhes.controls.clear()
+        
+        caminho_mapa = gerar_mapa(atividade)
+        grafico_fc = criar_grafico_fc(atividade)
+        
+        data_formatada = atividade.pontos[0].tempo.strftime("%d/%m/%Y às %H:%M") if atividade.pontos else "Data desconhecida"
 
-            atividade = ler_gpx(caminho) if caminho.lower().endswith('.gpx') else ler_tcx(caminho)
-            caminho_mapa = gerar_mapa(atividade)
-
-            painel_detalhes.controls.clear()
-            
-            # Resumo em Cartão
-            painel_detalhes.controls.append(
-                ft.Card(
-                    content=ft.Container(
-                        padding=20,
-                        content=ft.Column([
-                            ft.Text(atividade.nome, size=24, weight=ft.FontWeight.BOLD),
-                            ft.Row([
-                                ft.Icon(ft.Icons.ROUTE, color=ft.Colors.BLUE), ft.Text(f"{atividade.distancia_total_km:.2f} km"),
-                                ft.Icon(ft.Icons.TIMER, color=ft.Colors.GREEN), ft.Text(f"{atividade.tempo_total_minutos:.2f} min"),
-                                ft.Icon(ft.Icons.FAVORITE, color=ft.Colors.RED), ft.Text(f"{atividade.frequencia_cardiaca_media or '--'} bpm")
-                            ]),
-                        ])
-                    )
+        painel_detalhes.controls.append(
+            ft.Card(
+                content=ft.Container(
+                    padding=20,
+                    content=ft.Column([
+                        ft.Text(atividade.nome, size=24, weight=ft.FontWeight.BOLD),
+                        ft.Text(f"Realizado em: {data_formatada}", size=14, color=ft.Colors.GREY_400),
+                        ft.Divider(),
+                        ft.Row([
+                            ft.Icon(ft.Icons.ROUTE, color=ft.Colors.BLUE), ft.Text(f"{atividade.distancia_total_km:.2f} km"),
+                            ft.Icon(ft.Icons.TIMER, color=ft.Colors.GREEN), ft.Text(f"{atividade.tempo_total_minutos:.2f} min"),
+                            ft.Icon(ft.Icons.FAVORITE, color=ft.Colors.RED), ft.Text(f"{atividade.frequencia_cardiaca_media or '--'} bpm")
+                        ], wrap=True),
+                        
+                        # GRÁFICO MATPLOTLIB INSERIDO AQUI
+                        ft.Divider(),
+                        ft.Text("Evolução Cardíaca", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_400),
+                        ft.Container(content=grafico_fc, alignment=ft.Alignment.CENTER)
+                    ])
                 )
             )
+        )
 
-            # Usando o webbrowser do Python, 0% de stresse com o Flet/Wayland!
-            if caminho_mapa:
-                def abrir_e_minimizar(e):
-                    # 1. Minimiza o aplicativo Flet
-                    page.window.minimized = True
-                    page.update()
-                    # 2. Abre o navegador
-                    webbrowser.open(f"file://{caminho_mapa}")
+        if caminho_mapa:
+            def abrir_e_minimizar(e):
+                page.window.minimized = True
+                page.update()
+                webbrowser.open(f"file://{caminho_mapa}")
 
-                botao_externo = ft.Button(
-                    content="Ver Percurso no Navegador",
-                    icon=ft.Icons.MAP,
-                    on_click=abrir_e_minimizar
-                )
-                painel_detalhes.controls.append(ft.Row([botao_externo], alignment=ft.MainAxisAlignment.CENTER))
+            botao_externo = ft.Button(
+                content="Ver Percurso no Navegador",
+                icon=ft.Icons.MAP,
+                on_click=abrir_e_minimizar
+            )
+            painel_detalhes.controls.append(ft.Row([botao_externo], alignment=ft.MainAxisAlignment.CENTER))
+        
+        page.update()
 
-            texto_estado.value = "Carregamento e Mapa gerados com sucesso!"
+    def atualizar_historico_ui():
+        coluna_historico.controls.clear()
+        
+        atividades_ordenadas = sorted(
+            lista_de_atividades, 
+            key=lambda a: a.pontos[0].tempo if a.pontos else datetime.min, 
+            reverse=True
+        )
+
+        for ativ in atividades_ordenadas:
+            data_curta = ativ.pontos[0].tempo.strftime("%d/%m") if ativ.pontos else "--/--"
+            
+            item = ft.ListTile(
+                leading=ft.Icon(ft.Icons.DIRECTIONS_RUN, color=ft.Colors.ORANGE_500),
+                title=ft.Text(ativ.nome, weight=ft.FontWeight.BOLD),
+                subtitle=ft.Text(f"{data_curta} • {ativ.distancia_total_km:.1f} km"),
+                on_click=lambda e, a=ativ: mostrar_detalhes(a)
+            )
+            coluna_historico.controls.append(ft.Card(content=item))
+
+    def processar_ficheiros(ficheiros_selecionados):
+        try:
+            texto_estado.value = f"A processar {len(ficheiros_selecionados)} ficheiro(s)..."
+            page.update()
+
+            for f in ficheiros_selecionados:
+                caminho = f.path
+                if caminho.lower().endswith('.gpx') or caminho.lower().endswith('.tcx'):
+                    atividade = ler_gpx(caminho) if caminho.lower().endswith('.gpx') else ler_tcx(caminho)
+                    lista_de_atividades.append(atividade)
+
+            atualizar_historico_ui()
+            texto_estado.value = f"{len(ficheiros_selecionados)} atividade(s) carregada(s) com sucesso!"
 
         except Exception as e:
             texto_estado.value = f"Erro ao processar: {str(e)}"
@@ -150,25 +238,45 @@ def main(page: ft.Page):
         page.update()
 
     async def abrir_seletor(e: ft.Event[ft.Button]):
-        files = await ft.FilePicker().pick_files(allow_multiple=False, allowed_extensions=["gpx", "tcx"])
+        files = await ft.FilePicker().pick_files(allow_multiple=True, allowed_extensions=["gpx", "tcx"])
         if files:
-            processar_ficheiro(files[0].path)
+            processar_ficheiros(files)
         else:
             texto_estado.value = "Seleção cancelada."
             page.update()
+
+    layout_principal = ft.ResponsiveRow(
+        controls=[
+            ft.Column(col={"sm": 12, "md": 5, "lg": 4}, controls=[
+                ft.Text("Histórico de Corridas", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_500),
+                ft.Divider(),
+                coluna_historico
+            ]),
+            ft.Column(col={"sm": 12, "md": 7, "lg": 8}, controls=[
+                ft.Text("Detalhes", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_400),
+                ft.Divider(),
+                painel_detalhes
+            ])
+        ]
+    )
 
     page.add(
         ft.Row([
             ft.Icon(ft.Icons.DIRECTIONS_RUN, size=40, color=ft.Colors.ORANGE_500),
             ft.Text("Sports Tracker Analyzer", size=32, weight=ft.FontWeight.BOLD)
         ], alignment=ft.MainAxisAlignment.CENTER),
-        ft.Divider(height=30),
+        
+        ft.Divider(height=20),
+        
         ft.Row([
-            ft.Button(content="Selecionar Atividade (GPX/TCX)", icon=ft.Icons.UPLOAD_FILE, on_click=abrir_seletor),
+            ft.Button(content="Carregar Arquivos (GPX/TCX)", icon=ft.Icons.UPLOAD_FILE, on_click=abrir_seletor),
         ], alignment=ft.MainAxisAlignment.CENTER),
+        
         ft.Row([texto_estado], alignment=ft.MainAxisAlignment.CENTER),
+        
         ft.Container(height=20),
-        painel_detalhes
+        
+        layout_principal 
     )
 
 if __name__ == "__main__":
