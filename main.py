@@ -87,12 +87,62 @@ def ler_tcx(caminho_ficheiro: str) -> Atividade:
 # ==========================================
 # GRÁFICO COMBINADO (BPM E PACE POR KM)
 # ==========================================
+import geopy.distance 
+
+def ler_tcx(caminho_ficheiro: str) -> Atividade:
+    dados_tcx = TCXReader().read(caminho_ficheiro)
+    pontos = []
+    dist_acum = 0.0
+    p_ant_coord = None
+    p_ant_time = None
+
+    for tp in dados_tcx.trackpoints:
+        if tp.latitude and tp.longitude:
+            t_naive = tp.time.replace(tzinfo=None) if tp.time else None
+            
+            # Cálculo de distância manual para garantir consistência com o GPX
+            if p_ant_coord:
+                # Calculando a distância entre o ponto anterior e o atual (em km)
+                from gpxpy.geo import distance
+                d_m = distance(p_ant_coord[0], p_ant_coord[1], None, tp.latitude, tp.longitude, None)
+                dist_acum += d_m / 1000.0
+                
+                dt = (tp.time - p_ant_time).total_seconds() if tp.time and p_ant_time else 0
+                pace = (dt / 60.0) / (d_m / 1000.0) if d_m > 0.1 else 0
+            else:
+                pace = 0
+            
+            pontos.append(PontoTreino(
+                latitude=tp.latitude, 
+                longitude=tp.longitude, 
+                elevacao=tp.elevation, 
+                tempo=t_naive, 
+                distancia_acumulada_km=dist_acum, 
+                frequencia_cardiaca=tp.hr_value, 
+                pace_instantaneo=pace
+            ))
+            
+            p_ant_coord = (tp.latitude, tp.longitude)
+            p_ant_time = tp.time
+            
+    return Atividade(
+        "Atividade TCX", 
+        dados_tcx.activity_type, 
+        dist_acum, 
+        (dados_tcx.duration or 0)/60, 
+        dados_tcx.hr_avg, 
+        pontos
+    )
+
 def criar_grafico_combinado(atividade: Atividade) -> ft.Control:
     # Filtro relaxado: apenas pontos que tenham distância calculada
-    pontos_v = [p for p in atividade.pontos if p.distancia_acumulada_km > 0]
+    pontos_v = [p for p in atividade.pontos if p.distancia_acumulada_km >= 0]
     
-    if len(pontos_v) < 10:
-        return ft.Container(content=ft.Text("Dados insuficientes para o gráfico.", italic=True), padding=20)
+    if len(pontos_v) < 2 or pontos_v[-1].distancia_acumulada_km == 0:
+        return ft.Container(
+            content=ft.Text("Dados de GPS insuficientes para gerar o gráfico.", color=ft.Colors.GREY_500),
+            padding=20
+        )
 
     plt.close('all')
     fig, ax1 = plt.subplots(figsize=(10, 4))
@@ -151,11 +201,15 @@ def main(page: ft.Page):
         painel_detalhes.controls.clear()
         
         coords = [ftm.MapLatitudeLongitude(p.latitude, p.longitude) for p in ativ.pontos if p.latitude]
-        
-        # MUDANÇA: URL do CartoDB Positron para evitar erro 403 e ficar no modo escuro
+        if not coords: return
+
+        # Definir marcadores de Início e Fim
+        ponto_inicio = coords[0]
+        ponto_fim = coords[-1]
+
         mapa = ftm.Map(
             expand=True,
-            initial_center=coords[len(coords)//2] if coords else ftm.MapLatitudeLongitude(0,0),
+            initial_center=coords[len(coords)//2],
             initial_zoom=14,
             layers=[
                 ftm.TileLayer(
@@ -170,7 +224,22 @@ def main(page: ft.Page):
                             border_color=ft.Colors.ORANGE_900,
                         )
                     ]
-                )
+                ),
+                # CAMADA DE MARCADORES ADICIONADA AQUI
+                ftm.MarkerLayer(
+                    markers=[
+                        # Marcador de Início
+                        ftm.Marker(
+                            content=ft.Icon(ft.Icons.PLAY_CIRCLE_FILL, color=ft.Colors.GREEN_ACCENT_400),
+                            coordinates=ponto_inicio,
+                        ),
+                        # Marcador de Fim
+                        ftm.Marker(
+                            content=ft.Icon(ft.Icons.STOP_CIRCLE_ROUNDED, color=ft.Colors.RED_ACCENT_400),
+                            coordinates=ponto_fim,
+                        ),
+                    ]
+                ),
             ]
         )
 
@@ -183,9 +252,7 @@ def main(page: ft.Page):
                     ft.Icon(ft.Icons.FAVORITE, color=ft.Colors.RED), ft.Text(f"{ativ.frequencia_cardiaca_media or '--'} bpm"),
                 ]),
                 ft.Divider(),
-                # Gráfico
                 ft.Container(content=criar_grafico_combinado(ativ), alignment=ft.Alignment.CENTER, height=250),
-                # Mapa
                 ft.Container(content=mapa, height=350, border_radius=10)
             ])))
         )
