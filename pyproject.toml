@@ -1,0 +1,18 @@
+[project]
+name = "analise-corridas"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Marcelo Santos",email = "rocha.mer21@gmail.com"}
+]
+requires-python = "^3.11"
+dependencies = [
+    "flet (>=0.82.2,<0.83.0)",
+    "gpxpy (>=1.6.2,<2.0.0)",
+    "tcxreader (>=0.4.11,<0.5.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
